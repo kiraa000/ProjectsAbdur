@@ -39,6 +39,9 @@ jobs:
       - name: Convert Persistent Settings to native page
         run: python3 nuvio-build/apply_persistent_page.py nuvio
 
+      - name: Add visible source pin control
+        run: python3 nuvio-build/add_visible_source_pin.py nuvio
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
