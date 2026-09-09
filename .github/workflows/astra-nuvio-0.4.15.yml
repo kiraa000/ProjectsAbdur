@@ -5,8 +5,7 @@ on:
     branches:
       - astra-build-temp
     paths:
-      - "astra-build/**"
-      - ".github/workflows/astra-nuvio-0.4.15.yml"
+      - "astra-build/custom.patch"
   workflow_dispatch:
 
 permissions:
@@ -23,7 +22,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Check out Astra build payload
+      - name: Check out Astra patch
         uses: actions/checkout@v6
 
       - name: Check out official Nuvio Enhanced 0.4.15
@@ -32,22 +31,37 @@ jobs:
           cd nuvio
           git checkout 0.4.15
           test "$(git describe --tags --exact-match)" = "0.4.15"
+          test "$(git rev-parse HEAD)" = "655e8766f304f196e6c5860e16eef9cc9cdc65e9"
 
-      - name: Restore complete Astra patch
+      - name: Verify complete Astra patch
         run: |
-          base64 --decode astra-build/custom.patch.gz.b64 | gzip --decompress > "$RUNNER_TEMP/astra.patch"
-          echo "1545aad9cc31372ba8c1ab6ff2d211b4da85bd8a26d238bbf1d0bdc2b275d09c  $RUNNER_TEMP/astra.patch" | sha256sum --check
+          echo "1545aad9cc31372ba8c1ab6ff2d211b4da85bd8a26d238bbf1d0bdc2b275d09c  astra-build/custom.patch" | sha256sum --check
 
       - name: Merge Astra onto 0.4.15
         working-directory: nuvio
         run: |
-          git apply --3way --index "$RUNNER_TEMP/astra.patch"
+          git apply --3way --index ../astra-build/custom.patch
           if git diff --name-only --diff-filter=U | grep -q .; then
             echo "Astra patch has unresolved merge conflicts with Enhanced 0.4.15" >&2
             git diff --name-only --diff-filter=U >&2
             exit 1
           fi
           git diff --cached --check
+
+      - name: Verify all seven Enhanced 0.4.15 updates remain in history
+        working-directory: nuvio
+        run: |
+          for commit in \
+            c99cfae4af8a8a47f8c976bfc5f88dfeba70c19f \
+            611b0201167b9439ae96a53bb0fc7dc4b1d21ecf \
+            ac2921b7363e18863fc2e8c4d0302fb5e2ba6b5a \
+            330de2d3236ccb1ace38a51022c96e3b61e28cc8 \
+            ffe9c0b78e9841baac63f0081d298fa45dc6fcce \
+            31cfe8adef3c9756a7db508cea55029cef548a0c
+          do
+            git merge-base --is-ancestor "$commit" HEAD
+          done
+          git log --format=%s 0.4.14..HEAD | grep -Fq 'fix(discover): keep discover filters visible while scrolling'
 
       - name: Verify visible season pin wiring
         working-directory: nuvio
