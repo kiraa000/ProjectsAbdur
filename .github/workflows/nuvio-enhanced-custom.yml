@@ -7,6 +7,12 @@ on:
     paths:
       - "nuvio-build/**"
       - ".github/workflows/nuvio-enhanced-custom.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "nuvio-build/**"
+      - ".github/workflows/nuvio-enhanced-custom.yml"
   workflow_dispatch:
 
 permissions:
