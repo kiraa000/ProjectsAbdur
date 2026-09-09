@@ -30,7 +30,7 @@ jobs:
         run: |
           git clone --branch enhanced --single-branch https://github.com/luqmanfadlli/NuvioMobile-Enhanced.git nuvio
           cd nuvio
-          git checkout e60679adee7de110144c9a0e5f1cf625c9364f9f
+          git checkout 2ba36a7c04ccca8fbbb8fe0edf336b99426de0b3
 
       - name: Apply custom persistence layer
         run: python3 nuvio-build/apply_custom.py nuvio
