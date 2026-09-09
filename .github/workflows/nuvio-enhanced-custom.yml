@@ -1,0 +1,89 @@
+name: Build Nuvio Enhanced Custom
+
+on:
+  push:
+    branches:
+      - nuvio-enhanced-custom
+    paths:
+      - "nuvio-build/**"
+      - ".github/workflows/nuvio-enhanced-custom.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "nuvio-build/**"
+      - ".github/workflows/nuvio-enhanced-custom.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out custom patch
+        uses: actions/checkout@v6
+
+      - name: Check out Nuvio Enhanced
+        run: |
+          git clone --branch enhanced --single-branch https://github.com/luqmanfadlli/NuvioMobile-Enhanced.git nuvio
+          cd nuvio
+          git checkout e60679adee7de110144c9a0e5f1cf625c9364f9f
+
+      - name: Apply custom persistence layer
+        run: python3 nuvio-build/apply_custom.py nuvio
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Configure local release signing
+        working-directory: nuvio
+        run: |
+          keytool -genkeypair -v \
+            -keystore "$RUNNER_TEMP/nuvio-custom-release.jks" \
+            -storepass android \
+            -keypass android \
+            -alias nuvio-custom \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Nuvio Enhanced Custom, OU=Personal Build, O=Abdur, C=US"
+
+          cat > local.properties <<EOF
+          NUVIO_RELEASE_STORE_FILE=$RUNNER_TEMP/nuvio-custom-release.jks
+          NUVIO_RELEASE_STORE_PASSWORD=android
+          NUVIO_RELEASE_KEY_ALIAS=nuvio-custom
+          NUVIO_RELEASE_KEY_PASSWORD=android
+          TRAKT_CLIENT_ID=
+          TRAKT_CLIENT_SECRET=
+          TRAKT_REDIRECT_URI=nuvio://auth/trakt
+          SIMKL_CLIENT_ID=
+          SIMKL_REDIRECT_URI=nuvio://auth/simkl
+          SIMKL_APP_NAME=nuvio
+          INTRODB_API_URL=https://api.introdb.app/
+          EOF
+
+      - name: Build Android full release APKs
+        working-directory: nuvio
+        run: ./gradlew :androidApp:assembleFullRelease --stacktrace
+
+      - name: Collect APKs
+        run: |
+          mkdir -p output
+          cp nuvio/androidApp/build/outputs/apk/full/release/*.apk output/
+          sha256sum output/*.apk | tee output/SHA256SUMS.txt
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: Nuvio-Enhanced-Abdur-Custom
+          path: output/*
+          if-no-files-found: error
