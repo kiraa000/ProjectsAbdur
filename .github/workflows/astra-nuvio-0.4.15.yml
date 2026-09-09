@@ -1,0 +1,133 @@
+name: Build Nuvio Enhanced Astra 0.4.15
+
+on:
+  push:
+    branches:
+      - astra-build-temp
+    paths:
+      - "astra-build/**"
+      - ".github/workflows/astra-nuvio-0.4.15.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: astra-nuvio-0.4.15-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Build Astra Android APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out Astra build payload
+        uses: actions/checkout@v6
+
+      - name: Check out official Nuvio Enhanced 0.4.15
+        run: |
+          git clone https://github.com/luqmanfadlli/NuvioMobile-Enhanced.git nuvio
+          cd nuvio
+          git checkout 0.4.15
+          test "$(git describe --tags --exact-match)" = "0.4.15"
+
+      - name: Restore complete Astra patch
+        run: |
+          base64 --decode astra-build/custom.patch.gz.b64 | gzip --decompress > "$RUNNER_TEMP/astra.patch"
+          echo "1545aad9cc31372ba8c1ab6ff2d211b4da85bd8a26d238bbf1d0bdc2b275d09c  $RUNNER_TEMP/astra.patch" | sha256sum --check
+
+      - name: Merge Astra onto 0.4.15
+        working-directory: nuvio
+        run: |
+          git apply --3way --index "$RUNNER_TEMP/astra.patch"
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "Astra patch has unresolved merge conflicts with Enhanced 0.4.15" >&2
+            git diff --name-only --diff-filter=U >&2
+            exit 1
+          fi
+          git diff --cached --check
+
+      - name: Verify visible season pin wiring
+        working-directory: nuvio
+        run: |
+          grep -Fq 'StreamPinButton(stream)' composeApp/src/commonMain/kotlin/com/nuvio/app/features/streams/StreamCard.kt
+          grep -Fq 'Pinned for Season' composeApp/src/commonMain/kotlin/com/nuvio/app/features/streams/StreamPinControls.kt
+          grep -Fq 'toggleSeasonPin' composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/PersistentPlaybackRepository.kt
+          grep -Fq 'StreamPinScope(parentMetaId, seasonNumber)' composeApp/src/commonMain/kotlin/com/nuvio/app/features/streams/StreamsScreen.kt
+          grep -Fq 'val explicitPin = PersistentPlaybackRepository.seasonPin' composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/PlayerNextEpisodeAutoPlay.kt
+          grep -Fq 'pinnedCandidate(allStreams)' composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/PlayerNextEpisodeAutoPlay.kt
+          grep -Fq 'Pinned for Season' composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/PlayerSourcesPanel.kt
+          grep -Fq 'Icons.Rounded.MoreVert' composeApp/src/commonMain/kotlin/com/nuvio/app/features/streams/StreamCard.kt
+
+      - name: Verify Astra settings and login wiring
+        working-directory: nuvio
+        run: |
+          test -f composeApp/src/commonMain/kotlin/com/nuvio/app/features/settings/PersistentSettingsPage.kt
+          grep -Fq 'Persistent Settings' composeApp/src/commonMain/composeResources/values/strings.xml
+          grep -Fq 'SessionSource.SignIn' composeApp/src/commonMain/kotlin/com/nuvio/app/core/auth/AuthRepository.kt
+          grep -Fq 'SessionSource.SignUp' composeApp/src/commonMain/kotlin/com/nuvio/app/core/auth/AuthRepository.kt
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Configure release build
+        working-directory: nuvio
+        run: |
+          keytool -genkeypair -v \
+            -keystore "$RUNNER_TEMP/nuvio-astra-release.jks" \
+            -storepass android \
+            -keypass android \
+            -alias nuvio-astra \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Nuvio Enhanced Astra, OU=Personal Build, O=Abdur, C=US"
+
+          cat > local.properties <<EOF
+          NUVIO_RELEASE_STORE_FILE=$RUNNER_TEMP/nuvio-astra-release.jks
+          NUVIO_RELEASE_STORE_PASSWORD=android
+          NUVIO_RELEASE_KEY_ALIAS=nuvio-astra
+          NUVIO_RELEASE_KEY_PASSWORD=android
+          NUVIO_SUPABASE_URL=https://api.nuvio.tv
+          NUVIO_SUPABASE_ANON_KEY=sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN
+          NUVIO_SUPABASE_FALLBACK_URL=
+          TRAKT_CLIENT_ID=TRAKT_CLIENT_ID_PLACEHOLDER_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+          TRAKT_CLIENT_SECRET=TRAKT_CLIENT_SECRET_PLACEHOLDER_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+          TRAKT_REDIRECT_URI=nuvio://auth/trakt
+          SIMKL_CLIENT_ID=SIMKL_CLIENT_ID_PLACEHOLDER_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+          SIMKL_REDIRECT_URI=nuvio://auth/simkl
+          SIMKL_APP_NAME=nuvio
+          INTRODB_API_URL=https://api.introdb.app/
+          EOF
+
+      - name: Build full release APKs
+        working-directory: nuvio
+        run: ./gradlew :androidApp:assembleFullRelease --stacktrace
+
+      - name: Collect APKs
+        run: |
+          mkdir -p output
+          cp nuvio/androidApp/build/outputs/apk/full/release/*.apk output/
+          for apk in output/*.apk; do
+            base="$(basename "$apk")"
+            abi="${base#androidApp-full-}"
+            abi="${abi%-release.apk}"
+            mv "$apk" "output/Nuvio-Enhanced-Astra-0.4.15-${abi}.apk"
+          done
+          sha256sum output/*.apk | tee output/SHA256SUMS.txt
+
+      - name: Upload Astra APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: Nuvio-Enhanced-Astra-0.4.15
+          path: output/*
+          if-no-files-found: error
+          retention-days: 14
