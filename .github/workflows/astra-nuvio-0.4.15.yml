@@ -5,7 +5,8 @@ on:
     branches:
       - astra-build-temp
     paths:
-      - "astra-build/custom.patch"
+      - ".astra-transfer/**"
+      - ".github/workflows/astra-nuvio-0.4.15.yml"
   workflow_dispatch:
 
 permissions:
@@ -22,8 +23,21 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Check out Astra patch
+      - name: Check out Astra payload
         uses: actions/checkout@v6
+
+      - name: Reconstruct and verify Astra patch
+        run: |
+          cat \
+            .astra-transfer/part-0.b64 \
+            .astra-transfer/part-1.b64 \
+            .astra-transfer/part-2.b64 \
+            .astra-transfer/part-3.b64 \
+            | base64 --decode \
+            | gzip --decompress \
+            > "$RUNNER_TEMP/astra.patch"
+          echo "1545aad9cc31372ba8c1ab6ff2d211b4da85bd8a26d238bbf1d0bdc2b275d09c  $RUNNER_TEMP/astra.patch" | sha256sum --check
+          test "$(wc -c < "$RUNNER_TEMP/astra.patch")" -eq 99479
 
       - name: Check out official Nuvio Enhanced 0.4.15
         run: |
@@ -33,14 +47,10 @@ jobs:
           test "$(git describe --tags --exact-match)" = "0.4.15"
           test "$(git rev-parse HEAD)" = "655e8766f304f196e6c5860e16eef9cc9cdc65e9"
 
-      - name: Verify complete Astra patch
-        run: |
-          echo "1545aad9cc31372ba8c1ab6ff2d211b4da85bd8a26d238bbf1d0bdc2b275d09c  astra-build/custom.patch" | sha256sum --check
-
       - name: Merge Astra onto 0.4.15
         working-directory: nuvio
         run: |
-          git apply --3way --index ../astra-build/custom.patch
+          git apply --3way --index "$RUNNER_TEMP/astra.patch"
           if git diff --name-only --diff-filter=U | grep -q .; then
             echo "Astra patch has unresolved merge conflicts with Enhanced 0.4.15" >&2
             git diff --name-only --diff-filter=U >&2
@@ -48,7 +58,7 @@ jobs:
           fi
           git diff --cached --check
 
-      - name: Verify all seven Enhanced 0.4.15 updates remain in history
+      - name: Verify Enhanced 0.4.15 feature set
         working-directory: nuvio
         run: |
           for commit in \
