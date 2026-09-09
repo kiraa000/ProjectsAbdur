@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - nuvio-enhanced-custom
+      - dont-touch
     paths:
       - "nuvio-build/**"
       - ".github/workflows/nuvio-enhanced-custom.yml"
@@ -34,6 +35,9 @@ jobs:
 
       - name: Apply custom persistence layer
         run: python3 nuvio-build/apply_custom.py nuvio
+
+      - name: Convert Persistent Settings to native page
+        run: python3 nuvio-build/apply_persistent_page.py nuvio
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -86,6 +90,6 @@ jobs:
       - name: Upload APKs
         uses: actions/upload-artifact@v7
         with:
-          name: Nuvio-Enhanced-Abdur-Custom
+          name: Nuvio-Enhanced-Abdur-Dont-Touch
           path: output/*
           if-no-files-found: error
